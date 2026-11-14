@@ -23,7 +23,7 @@ When a market is resolved, GenLayer validators independently fetch the authorita
 
 | Parameter | Value |
 | :--- | :--- |
-| **Live Web App (Vercel)** | [https://frontend-seven-hazel-21.vercel.app](https://frontend-seven-hazel-21.vercel.app) |
+| **Live Web App (Vercel)** | [https://pulsemarket-genlayer.vercel.app](https://pulsemarket-genlayer.vercel.app) (also [https://pulsemarket-jamism123.vercel.app](https://pulsemarket-jamism123.vercel.app)) |
 | **GitHub Repository** | [https://github.com/JimmyOgb/pulsemarket](https://github.com/JimmyOgb/pulsemarket) |
 | **Network** | GenLayer Studionet |
 | **Chain ID** | `61999` (`0xf22f`) |
