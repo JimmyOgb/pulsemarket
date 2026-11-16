@@ -1,40 +1,29 @@
 [
   {
-    "action": "deploy_contract",
-    "contract_address": "0xbB14bFF145C3422f05a51ccD515dbeF770435815",
-    "tx_hash": "0x759af5933f3f6c93971490f790be8f5e4d25d88b48f758a07902fdd307432526",
-    "network": "studionet",
-    "chainId": 61999
-  },
-  {
     "action": "create_market_0",
-    "market_id": 0,
-    "question": "Will Ethereum mainnet activate the Pectra upgrade before Q3 2026?",
-    "source_url": "https://eips.ethereum.org/EIPS/eip-7600",
-    "tx_hash": "0x557ab46dcaf3ca3ae86cbcd9d91570ff8b3aa4568f470e01c9904e928de2b465",
-    "seed_liquidity_gen": 1.0
+    "market": "Will Ethereum mainnet activate the Pectra upgrade before Q3 2027?",
+    "tx_hash": "0xecbd9a10c3c0043f303b2a83a1cde2823b8c970529e98675cec73999242b0b84",
+    "liquidity_gen": 1.0,
+    "deadline_iso": "2027-07-01T00:00:00Z"
   },
   {
     "action": "create_market_1",
-    "market_id": 1,
-    "question": "Will Bitcoin reach a new all-time high above $150,000 USD before end of 2026?",
-    "source_url": "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd",
-    "tx_hash": "0x1783c1c9787d35ccee852f9aae1c86b2cf7ca9f8d60f5fdc286e6a26d158f5c8",
-    "seed_liquidity_gen": 2.0
+    "market": "Will Bitcoin reach a new all-time high above $150,000 USD before end of 2027?",
+    "tx_hash": "0x42c5e1b44674fb24da8c61d4ea2989957384fc78d3f9b66f149667c486387c83",
+    "liquidity_gen": 2.0,
+    "deadline_iso": "2027-12-31T23:59:59Z"
   },
   {
     "action": "create_market_2",
-    "market_id": 2,
-    "question": "Will SpaceX complete an uncrewed Starship landing on Mars before November 2026?",
-    "source_url": "https://en.wikipedia.org/wiki/SpaceX_Starship",
-    "tx_hash": "0x9fff45b9d2f4dd4d31ea391dde2c713674eb4d4bcb5bd102d045708601988601",
-    "seed_liquidity_gen": 1.0
+    "market": "Will SpaceX complete an uncrewed Starship landing on Mars before November 2027?",
+    "tx_hash": "0x202359b0c9d6978779068ebe5588a29dd4901a248248bffd2f2068bed3f94f59",
+    "liquidity_gen": 1.0,
+    "deadline_iso": "2027-11-01T00:00:00Z"
   },
   {
-    "action": "place_bet_market_0_yes",
-    "market_id": 0,
-    "side": "YES",
-    "bet_gen": 0.5,
-    "tx_hash": "0x35901dc78b6f9cbdfc08a30e8c678a3ac9bd74a2c104eb5639745c8b7eb523f0"
+    "action": "bet_market_0_yes",
+    "market": "Will Ethereum mainnet activate the Pectra upgrade before Q3 2027?",
+    "tx_hash": "0xb94c40c0cd43bbf7f40fd75895bf3d57a9bb9aff627ec6949b671a90bdb991e1",
+    "bet_gen": 0.5
   }
 ]

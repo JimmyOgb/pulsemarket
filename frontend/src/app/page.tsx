@@ -41,6 +41,8 @@ import {
   executePlaceBet,
   executeResolveMarket,
   executeClaimWinnings,
+  executeClaimRefund,
+  executeVoidExpiredMarket,
   executeCreateMarket,
   formatGen,
 } from '@/lib/genlayer';
@@ -55,11 +57,12 @@ export default function PulseMarketApp() {
     total_markets: 0,
     open_markets: 0,
     resolved_markets: 0,
+    voided_markets: 0,
     total_volume_locked: '0',
   });
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
-  const [filter, setFilter] = useState<'ALL' | 'OPEN' | 'RESOLVED'>('ALL');
+  const [filter, setFilter] = useState<'ALL' | 'OPEN' | 'RESOLVED' | 'VOIDED'>('ALL');
 
   // Wallet State
   const [walletAddress, setWalletAddress] = useState<string>('');
@@ -403,6 +406,118 @@ export default function PulseMarketApp() {
     }
   };
 
+  // Execute Claim Refund Handler
+  const handleClaimRefund = async (marketId: number) => {
+    const wallet = getWalletParams();
+    if (!wallet) {
+      setShowWalletModal(true);
+      return;
+    }
+
+    setConsensusModal({
+      isOpen: true,
+      title: `Claiming 100% Principal Refund for Market #${marketId}`,
+      stage: 'SUBMITTING',
+      txHash: '',
+      details: 'Submitting claim_refund() to Studionet...',
+      rawStatus: 'SUBMITTING',
+    });
+
+    try {
+      const { txHash } = await executeClaimRefund({
+        marketId,
+        wallet,
+        onStageChange: (stage, rawStatus, tx) => {
+          setConsensusModal((prev) => ({
+            ...prev,
+            stage: stage as ConsensusStage,
+            rawStatus: rawStatus || prev.rawStatus,
+            txHash: tx?.hash || prev.txHash,
+            details:
+              stage === 'FINALIZED'
+                ? 'Full principal refund sent back to your wallet!'
+                : `Stage: ${stage}`,
+          }));
+        },
+      });
+
+      await loadProtocolData();
+      if (walletAddress) {
+        fetchUserPosition(marketId, walletAddress).then(setActiveUserPos);
+      }
+
+      setConsensusModal((prev) => ({
+        ...prev,
+        stage: 'FINALIZED',
+        txHash,
+        details: '100% principal refund claimed successfully!',
+      }));
+    } catch (err: any) {
+      setConsensusModal((prev) => ({
+        ...prev,
+        stage: 'ERROR',
+        error: err.message || String(err),
+        details: 'Refund claim failed.',
+      }));
+    }
+  };
+
+  // Execute Void Expired Market Handler
+  const handleVoidExpiredMarket = async (marketId: number) => {
+    const wallet = getWalletParams();
+    if (!wallet) {
+      setShowWalletModal(true);
+      return;
+    }
+
+    setConsensusModal({
+      isOpen: true,
+      title: `Voiding Expired Market #${marketId}`,
+      stage: 'SUBMITTING',
+      txHash: '',
+      details: 'Calling void_expired_market() on Studionet...',
+      rawStatus: 'SUBMITTING',
+    });
+
+    try {
+      const { txHash } = await executeVoidExpiredMarket({
+        marketId,
+        wallet,
+        onStageChange: (stage, rawStatus, tx) => {
+          setConsensusModal((prev) => ({
+            ...prev,
+            stage: stage as ConsensusStage,
+            rawStatus: rawStatus || prev.rawStatus,
+            txHash: tx?.hash || prev.txHash,
+            details:
+              stage === 'FINALIZED'
+                ? 'Market successfully VOIDED. 100% principal refunds are now open!'
+                : `Stage: ${stage}`,
+          }));
+        },
+      });
+
+      await loadProtocolData();
+      if (walletAddress) {
+        fetchUserPosition(marketId, walletAddress).then(setActiveUserPos);
+      }
+
+      setConsensusModal((prev) => ({
+        ...prev,
+        stage: 'FINALIZED',
+        txHash,
+        details: 'Market expired window elapsed — status transitioned to VOIDED!',
+      }));
+    } catch (err: any) {
+      setConsensusModal((prev) => ({
+        ...prev,
+        stage: 'ERROR',
+        error: err.message || String(err),
+        details: 'Void request failed.',
+      }));
+    }
+  };
+
   // Execute Create Market Handler
   const handleCreateMarket = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -476,6 +591,7 @@ export default function PulseMarketApp() {
     return markets.filter((m) => {
       if (filter === 'OPEN') return m.status === 'OPEN';
       if (filter === 'RESOLVED') return m.status === 'RESOLVED';
+      if (filter === 'VOIDED') return m.status === 'VOIDED';
       return true;
     });
   }, [markets, filter]);
@@ -625,7 +741,7 @@ export default function PulseMarketApp() {
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         {/* Protocol Telemetry Strip */}
-        <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <section className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between relative overflow-hidden group hover:border-slate-700 transition">
             <div className="flex items-center justify-between text-slate-400 text-xs font-mono uppercase tracking-wider">
               <span>Total Volume Locked</span>
@@ -667,6 +783,20 @@ export default function PulseMarketApp() {
               <span className="text-xs text-slate-400">RESOLVED</span>
             </div>
             <div className="text-[11px] text-slate-500 mt-1 font-mono">By AI Consensus</div>
+          </div>
+
+          <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between relative overflow-hidden group hover:border-slate-700 transition">
+            <div className="flex items-center justify-between text-slate-400 text-xs font-mono uppercase tracking-wider">
+              <span>Voided / Refunds</span>
+              <AlertTriangle className="w-4 h-4 text-amber-400" />
+            </div>
+            <div className="mt-2 flex items-baseline gap-1.5">
+              <span className="text-2xl font-black font-mono text-amber-300 tracking-tight">
+                {stats.voided_markets || 0}
+              </span>
+              <span className="text-xs text-slate-400">VOIDED</span>
+            </div>
+            <div className="text-[11px] text-slate-500 mt-1 font-mono">100% Refunds Open</div>
           </div>
 
           <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between relative overflow-hidden group hover:border-slate-700 transition">
@@ -758,6 +888,16 @@ export default function PulseMarketApp() {
             >
               Resolved
             </button>
+            <button
+              onClick={() => setFilter('VOIDED')}
+              className={`px-3 py-1.5 rounded-md transition ${
+                filter === 'VOIDED'
+                  ? 'bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Voided
+            </button>
           </div>
         </div>
 
@@ -780,22 +920,44 @@ export default function PulseMarketApp() {
               const yesOdds = market.yes_probability;
               const noOdds = market.no_probability;
 
+              const isCutoffPassed = market.deadline_iso
+                ? Date.now() >= Date.parse(market.deadline_iso)
+                : false;
+              const isRefundPassed = market.refund_deadline_iso
+                ? Date.now() >= Date.parse(market.refund_deadline_iso)
+                : false;
+              const isBettingClosed = !market.is_betting_open || isCutoffPassed;
+              const canVoidExpired = market.status === 'OPEN' && isRefundPassed;
+
               return (
                 <div
                   key={market.id}
                   className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between hover:border-slate-700/80 transition-all shadow-lg hover:shadow-cyan-950/20 relative group"
                 >
                   <div>
-                    {/* Header: Market ID, Status Badge & Deadline */}
-                    <div className="flex items-center justify-between gap-2 mb-3">
-                      <div className="flex items-center gap-2">
+                    {/* Header: Market ID, Status Badge & Cutoff */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono text-xs text-cyan-400 font-bold bg-cyan-950/60 border border-cyan-800/40 px-2 py-0.5 rounded">
                           MARKET #{market.id}
                         </span>
+
                         {market.status === 'OPEN' ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-mono text-emerald-400 bg-emerald-950/50 border border-emerald-800/40 px-2 py-0.5 rounded-full">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                            OPEN
+                          isBettingClosed ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-mono text-amber-300 bg-amber-950/50 border border-amber-800/50 px-2.5 py-0.5 rounded-full font-bold">
+                              <Clock className="w-3 h-3 text-amber-400" />
+                              BETTING CLOSED (CUTOFF PASSED)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-mono text-emerald-400 bg-emerald-950/50 border border-emerald-800/40 px-2 py-0.5 rounded-full">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                              OPEN
+                            </span>
+                          )
+                        ) : market.status === 'VOIDED' ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-mono text-amber-300 bg-amber-950/70 border border-amber-500/50 px-2.5 py-0.5 rounded-full font-bold shadow-sm shadow-amber-500/20">
+                            <AlertTriangle className="w-3 h-3 text-amber-400" />
+                            VOIDED / REFUNDABLE
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 text-[11px] font-mono text-indigo-300 bg-indigo-950/50 border border-indigo-800/40 px-2 py-0.5 rounded-full font-bold">
@@ -804,11 +966,29 @@ export default function PulseMarketApp() {
                           </span>
                         )}
                       </div>
+                    </div>
 
-                      <div className="flex items-center gap-1 text-[11px] font-mono text-slate-400">
-                        <Clock className="w-3.5 h-3.5 text-slate-500" />
-                        <span>Deadline: {market.deadline_iso.slice(0, 10)}</span>
+                    {/* Prominent Cutoff & Refund Expiry Dates */}
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-[11px] font-mono bg-slate-950/70 border border-slate-800/80 px-3 py-2 rounded-xl mb-3.5">
+                      <div className="flex items-center gap-1.5 text-slate-400">
+                        <Clock className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                        <span className="text-slate-500">Betting Cutoff:</span>
+                        <span className={isBettingClosed ? 'text-amber-400 font-bold' : 'text-slate-200'}>
+                          {market.deadline_iso ? new Date(market.deadline_iso).toLocaleString() : 'N/A'}
+                        </span>
                       </div>
+                      {market.refund_deadline_iso && (
+                        <>
+                          <span className="hidden sm:inline text-slate-700">|</span>
+                          <div className="flex items-center gap-1.5 text-slate-400">
+                            <ShieldCheck className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                            <span className="text-slate-500">Refund Expiry:</span>
+                            <span className="text-slate-300">
+                              {new Date(market.refund_deadline_iso).toLocaleString()}
+                            </span>
+                          </div>
+                        </>
+                      )}
                     </div>
 
                     {/* Market Question */}
@@ -867,14 +1047,18 @@ export default function PulseMarketApp() {
                       </div>
                     </div>
 
-                    {/* AI Consensus Resolution Rationale (If Resolved) */}
+                    {/* AI Consensus Resolution Rationale (If Resolved or Voided) */}
                     {market.resolution_rationale && (
-                      <div className="mb-4 bg-indigo-950/30 border border-indigo-800/40 rounded-xl p-3 text-xs space-y-1">
-                        <div className="flex items-center gap-1.5 font-mono text-indigo-300 font-semibold">
-                          <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                          <span>GenLayer Multi-Validator Oracle Verdict</span>
+                      <div className={`mb-4 rounded-xl p-3 text-xs space-y-1 ${
+                        market.status === 'VOIDED'
+                          ? 'bg-amber-950/30 border border-amber-800/40 text-amber-200'
+                          : 'bg-indigo-950/30 border border-indigo-800/40 text-slate-300'
+                      }`}>
+                        <div className="flex items-center gap-1.5 font-mono font-semibold">
+                          <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>GenLayer Consensus Verdict & Rationale</span>
                         </div>
-                        <p className="text-slate-300 text-[11px] leading-relaxed italic">
+                        <p className="text-[11px] leading-relaxed italic">
                           &ldquo;{market.resolution_rationale}&rdquo;
                         </p>
                       </div>
@@ -882,39 +1066,80 @@ export default function PulseMarketApp() {
                   </div>
 
                   {/* Actions Bar */}
-                  <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-3">
-                    {market.status === 'OPEN' ? (
+                  <div className="pt-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                    {market.status === 'VOIDED' ? (
+                      <div className="w-full flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <div className="text-xs font-mono text-amber-300 flex items-center gap-1.5">
+                          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                          <span>100% Principal Refunds Enabled</span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setActiveTradeMarket(market);
+                            handleClaimRefund(market.id);
+                          }}
+                          className="w-full sm:w-auto bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold py-2.5 px-4 rounded-xl text-xs font-mono transition flex items-center justify-center gap-1.5 shadow-md shadow-amber-500/20 cursor-pointer"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>Claim Full Refund</span>
+                        </button>
+                      </div>
+                    ) : market.status === 'OPEN' ? (
                       <>
-                        <button
-                          onClick={() => {
-                            setActiveTradeMarket(market);
-                            setTradeSide('YES');
-                          }}
-                          className="flex-1 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-slate-950 font-bold py-2.5 px-4 rounded-xl text-xs font-mono transition flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950 cursor-pointer"
-                        >
-                          <span>Buy YES</span>
-                          <span className="text-[10px] opacity-80">({yesOdds}%)</span>
-                        </button>
+                        {isBettingClosed ? (
+                          <div className="flex-1 bg-slate-950 border border-slate-800 rounded-xl py-2 px-3 text-center">
+                            <span className="text-xs font-mono text-amber-400 font-bold flex items-center justify-center gap-1">
+                              <Lock className="w-3.5 h-3.5" />
+                              Betting Closed (Cutoff Passed)
+                            </span>
+                          </div>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => {
+                                setActiveTradeMarket(market);
+                                setTradeSide('YES');
+                              }}
+                              className="flex-1 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-slate-950 font-bold py-2.5 px-4 rounded-xl text-xs font-mono transition flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950 cursor-pointer"
+                            >
+                              <span>Buy YES</span>
+                              <span className="text-[10px] opacity-80">({yesOdds}%)</span>
+                            </button>
 
-                        <button
-                          onClick={() => {
-                            setActiveTradeMarket(market);
-                            setTradeSide('NO');
-                          }}
-                          className="flex-1 bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-500 hover:to-rose-400 text-slate-950 font-bold py-2.5 px-4 rounded-xl text-xs font-mono transition flex items-center justify-center gap-1.5 shadow-md shadow-rose-950 cursor-pointer"
-                        >
-                          <span>Buy NO</span>
-                          <span className="text-[10px] opacity-80">({noOdds}%)</span>
-                        </button>
+                            <button
+                              onClick={() => {
+                                setActiveTradeMarket(market);
+                                setTradeSide('NO');
+                              }}
+                              className="flex-1 bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-500 hover:to-rose-400 text-slate-950 font-bold py-2.5 px-4 rounded-xl text-xs font-mono transition flex items-center justify-center gap-1.5 shadow-md shadow-rose-950 cursor-pointer"
+                            >
+                              <span>Buy NO</span>
+                              <span className="text-[10px] opacity-80">({noOdds}%)</span>
+                            </button>
+                          </>
+                        )}
 
-                        <button
-                          onClick={() => handleResolveMarket(market)}
-                          className="bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30 hover:border-cyan-400 font-mono text-xs py-2.5 px-3 rounded-xl transition flex items-center gap-1 cursor-pointer shrink-0"
-                          title="Trigger AI Multi-Validator Resolution"
-                        >
-                          <Sparkles className="w-3.5 h-3.5" />
-                          <span className="hidden sm:inline">Resolve</span>
-                        </button>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {canVoidExpired && (
+                            <button
+                              onClick={() => handleVoidExpiredMarket(market.id)}
+                              className="bg-amber-950/60 hover:bg-amber-900/60 text-amber-300 border border-amber-600/50 hover:border-amber-500 font-mono text-xs py-2.5 px-3 rounded-xl transition flex items-center gap-1 cursor-pointer"
+                              title="Market past refund window — anyone can void to enable full refunds"
+                            >
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                              <span>Void Expired</span>
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => handleResolveMarket(market)}
+                            className="bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30 hover:border-cyan-400 font-mono text-xs py-2.5 px-3 rounded-xl transition flex items-center gap-1 cursor-pointer"
+                            title="Trigger AI Multi-Validator Resolution"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Resolve</span>
+                          </button>
+                        </div>
                       </>
                     ) : (
                       <div className="w-full flex items-center justify-between gap-3">
@@ -953,7 +1178,7 @@ export default function PulseMarketApp() {
             </button>
 
             <div>
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex flex-wrap items-center gap-2 mb-1">
                 <span className="font-mono text-xs text-cyan-400 font-bold">
                   MARKET #{activeTradeMarket.id}
                 </span>
@@ -961,99 +1186,155 @@ export default function PulseMarketApp() {
                 <span className="text-xs text-slate-400 font-mono">
                   Pool: {formatGen(BigInt(activeTradeMarket.yes_pool) + BigInt(activeTradeMarket.no_pool))} GEN
                 </span>
+                {activeTradeMarket.status === 'VOIDED' && (
+                  <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded font-mono font-bold">
+                    VOIDED / REFUNDS OPEN
+                  </span>
+                )}
               </div>
               <h2 className="text-base font-bold text-white leading-snug">
                 {activeTradeMarket.question}
               </h2>
-            </div>
 
-            {/* Side Selection Tabs */}
-            <div className="grid grid-cols-2 gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
-              <button
-                type="button"
-                onClick={() => setTradeSide('YES')}
-                className={`py-2.5 rounded-lg font-mono text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-                  tradeSide === 'YES'
-                    ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <span>YES</span>
-                <span>({activeTradeMarket.yes_probability}%)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setTradeSide('NO')}
-                className={`py-2.5 rounded-lg font-mono text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-                  tradeSide === 'NO'
-                    ? 'bg-rose-500 text-slate-950 shadow-md shadow-rose-500/20'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <span>NO</span>
-                <span>({activeTradeMarket.no_probability}%)</span>
-              </button>
-            </div>
-
-            {/* Stake Input Form */}
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs font-mono text-slate-300">
-                <span>Enter Stake Amount:</span>
-                <span>Currency: GEN</span>
+              {/* Cutoff & Refund Expiry Info in Modal */}
+              <div className="mt-2 text-[11px] font-mono text-slate-400 space-y-1 bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Betting Cutoff:</span>
+                  <span className={
+                    (!activeTradeMarket.is_betting_open || (activeTradeMarket.deadline_iso && Date.now() >= Date.parse(activeTradeMarket.deadline_iso)))
+                      ? 'text-amber-400 font-bold'
+                      : 'text-slate-200'
+                  }>
+                    {activeTradeMarket.deadline_iso ? new Date(activeTradeMarket.deadline_iso).toLocaleString() : 'N/A'}
+                  </span>
+                </div>
+                {activeTradeMarket.refund_deadline_iso && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Refund Expiry:</span>
+                    <span className="text-slate-300">
+                      {new Date(activeTradeMarket.refund_deadline_iso).toLocaleString()}
+                    </span>
+                  </div>
+                )}
               </div>
-              <div className="relative">
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0.01"
-                  value={stakeAmount}
-                  onChange={(e) => setStakeAmount(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white font-mono text-lg font-bold focus:outline-none focus:border-cyan-400 transition"
-                  placeholder="0.5"
-                />
-                <span className="absolute right-4 top-3.5 font-mono text-xs text-cyan-400 font-bold">
-                  GEN
+            </div>
+
+            {/* If Betting is closed or market is voided */}
+            {activeTradeMarket.status === 'VOIDED' ? (
+              <div className="bg-amber-950/40 border border-amber-800/60 rounded-xl p-3 text-xs font-mono text-amber-300 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Market Voided — 100% Principal Refund Active</span>
+                </div>
+                <p className="text-[11px] text-slate-300">
+                  {activeTradeMarket.resolution_rationale ||
+                    'All participants are entitled to recover 100% of their deposited stakes with zero protocol fees.'}
+                </p>
+              </div>
+            ) : activeTradeMarket.status === 'OPEN' &&
+              (!activeTradeMarket.is_betting_open ||
+                (activeTradeMarket.deadline_iso && Date.now() >= Date.parse(activeTradeMarket.deadline_iso))) ? (
+              <div className="bg-amber-950/40 border border-amber-800/60 rounded-xl p-3 text-xs font-mono text-amber-300 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>
+                  Betting is closed for this market as the cutoff deadline has passed. New wagers are rejected by consensus.
                 </span>
               </div>
+            ) : null}
 
-              {/* Quick Select Buttons */}
-              <div className="flex gap-2 font-mono text-xs">
-                {['0.1', '0.5', '1.0', '5.0'].map((amt) => (
-                  <button
-                    key={amt}
-                    type="button"
-                    onClick={() => setStakeAmount(amt)}
-                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 py-1 rounded border border-slate-700 transition"
-                  >
-                    +{amt}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {/* Side Selection Tabs (Disabled if closed or voided) */}
+            {activeTradeMarket.status === 'OPEN' &&
+              activeTradeMarket.is_betting_open &&
+              (!activeTradeMarket.deadline_iso || Date.now() < Date.parse(activeTradeMarket.deadline_iso)) && (
+                <>
+                  <div className="grid grid-cols-2 gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setTradeSide('YES')}
+                      className={`py-2.5 rounded-lg font-mono text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                        tradeSide === 'YES'
+                          ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <span>YES</span>
+                      <span>({activeTradeMarket.yes_probability}%)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTradeSide('NO')}
+                      className={`py-2.5 rounded-lg font-mono text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                        tradeSide === 'NO'
+                          ? 'bg-rose-500 text-slate-950 shadow-md shadow-rose-500/20'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <span>NO</span>
+                      <span>({activeTradeMarket.no_probability}%)</span>
+                    </button>
+                  </div>
 
-            {/* Pari-Mutuel Return Estimator */}
-            <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 space-y-2 text-xs font-mono">
-              <div className="flex justify-between text-slate-400">
-                <span>Estimated Implied Odds After Bet:</span>
-                <span className="text-white font-bold">{returnEstimates.newOdds}%</span>
-              </div>
-              <div className="flex justify-between text-slate-400">
-                <span>Estimated Payout (If {tradeSide} Wins):</span>
-                <span className="text-emerald-400 font-bold">
-                  ~{returnEstimates.estimatedPayout} GEN
-                </span>
-              </div>
-              <div className="flex justify-between text-slate-400">
-                <span>Potential Return Multiplier:</span>
-                <span className="text-cyan-400 font-bold">{returnEstimates.multiplier}</span>
-              </div>
-            </div>
+                  {/* Stake Input Form */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs font-mono text-slate-300">
+                      <span>Enter Stake Amount:</span>
+                      <span>Currency: GEN</span>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0.01"
+                        value={stakeAmount}
+                        onChange={(e) => setStakeAmount(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white font-mono text-lg font-bold focus:outline-none focus:border-cyan-400 transition"
+                        placeholder="0.5"
+                      />
+                      <span className="absolute right-4 top-3.5 font-mono text-xs text-cyan-400 font-bold">
+                        GEN
+                      </span>
+                    </div>
+
+                    {/* Quick Select Buttons */}
+                    <div className="flex gap-2 font-mono text-xs">
+                      {['0.1', '0.5', '1.0', '5.0'].map((amt) => (
+                        <button
+                          key={amt}
+                          type="button"
+                          onClick={() => setStakeAmount(amt)}
+                          className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 py-1 rounded border border-slate-700 transition"
+                        >
+                          +{amt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Pari-Mutuel Return Estimator */}
+                  <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 space-y-2 text-xs font-mono">
+                    <div className="flex justify-between text-slate-400">
+                      <span>Estimated Implied Odds After Bet:</span>
+                      <span className="text-white font-bold">{returnEstimates.newOdds}%</span>
+                    </div>
+                    <div className="flex justify-between text-slate-400">
+                      <span>Estimated Payout (If {tradeSide} Wins):</span>
+                      <span className="text-emerald-400 font-bold">
+                        ~{returnEstimates.estimatedPayout} GEN
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-slate-400">
+                      <span>Potential Return Multiplier:</span>
+                      <span className="text-cyan-400 font-bold">{returnEstimates.multiplier}</span>
+                    </div>
+                  </div>
+                </>
+              )}
 
             {/* User Active Position on this Market */}
             {activeUserPos && (
               <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-3 text-xs font-mono space-y-1">
                 <div className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                  Your Existing Position
+                  Your Position on this Market
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-300">YES Stake:</span>
@@ -1075,22 +1356,55 @@ export default function PulseMarketApp() {
                     </span>
                   </div>
                 )}
+                {activeTradeMarket.status === 'VOIDED' && (
+                  <div className="flex justify-between pt-1 border-t border-slate-700">
+                    <span className="text-slate-300">Refundable Principal:</span>
+                    <span className="text-amber-400 font-bold">
+                      {formatGen(activeUserPos.refundable_amount)} GEN
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Action Button */}
-            {activeTradeMarket.status === 'OPEN' ? (
+            {/* Action Buttons */}
+            {activeTradeMarket.status === 'VOIDED' ? (
               <button
                 type="button"
-                onClick={handlePlaceBet}
-                className={`w-full py-3 rounded-xl font-mono text-sm font-bold text-slate-950 transition cursor-pointer shadow-lg ${
-                  tradeSide === 'YES'
-                    ? 'bg-emerald-400 hover:bg-emerald-300 shadow-emerald-500/20'
-                    : 'bg-rose-400 hover:bg-rose-300 shadow-rose-500/20'
+                onClick={() => handleClaimRefund(activeTradeMarket.id)}
+                disabled={BigInt(activeUserPos?.refundable_amount || '0') <= 0n}
+                className={`w-full py-3 rounded-xl font-mono text-sm font-bold transition shadow-lg ${
+                  BigInt(activeUserPos?.refundable_amount || '0') > 0n
+                    ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 cursor-pointer shadow-amber-500/20'
+                    : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
                 }`}
               >
-                Confirm {tradeSide} Bet ({stakeAmount} GEN)
+                {BigInt(activeUserPos?.refundable_amount || '0') > 0n
+                  ? `Claim Full Refund (${formatGen(activeUserPos?.refundable_amount || '0')} GEN)`
+                  : 'No Refundable Stake or Already Claimed'}
               </button>
+            ) : activeTradeMarket.status === 'OPEN' ? (
+              (!activeTradeMarket.is_betting_open ||
+                (activeTradeMarket.deadline_iso && Date.now() >= Date.parse(activeTradeMarket.deadline_iso))) ? (
+                <button
+                  disabled
+                  className="w-full py-3 rounded-xl font-mono text-sm font-bold bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"
+                >
+                  Betting Closed (Cutoff Passed)
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handlePlaceBet}
+                  className={`w-full py-3 rounded-xl font-mono text-sm font-bold text-slate-950 transition cursor-pointer shadow-lg ${
+                    tradeSide === 'YES'
+                      ? 'bg-emerald-400 hover:bg-emerald-300 shadow-emerald-500/20'
+                      : 'bg-rose-400 hover:bg-rose-300 shadow-rose-500/20'
+                  }`}
+                >
+                  Confirm {tradeSide} Bet ({stakeAmount} GEN)
+                </button>
+              )
             ) : (
               <button
                 type="button"

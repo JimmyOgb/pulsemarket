@@ -6,10 +6,10 @@ export const STUDIONET_CHAIN_ID_HEX = '0xf22f';
 export const STUDIONET_RPC_URL =
   process.env.NEXT_PUBLIC_GENLAYER_RPC_URL || 'https://studio.genlayer.com/api';
 export const CONTRACT_ADDRESS = (process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ||
-  '0xbB14bFF145C3422f05a51ccD515dbeF770435815') as Address;
+  '0x4f5b23c365fa4d93E2878d6537D4eCA90Ec4F451') as Address;
 export const DEPLOYMENT_TX_HASH =
   process.env.NEXT_PUBLIC_DEPLOYMENT_TX_HASH ||
-  '0x759af5933f3f6c93971490f790be8f5e4d25d88b48f758a07902fdd307432526';
+  '0x718d8b58bae1a4c2b61f42531767cd93a0c01ef30e10a36100c96287af7c75a7';
 
 export interface Market {
   id: number;
@@ -18,10 +18,12 @@ export interface Market {
   resolution_source_url: string;
   resolution_rules: string;
   deadline_iso: string;
+  refund_deadline_iso: string;
+  is_betting_open: boolean;
   yes_pool: string;
   no_pool: string;
-  status: 'OPEN' | 'RESOLVED';
-  outcome: 'PENDING' | 'YES' | 'NO';
+  status: 'OPEN' | 'RESOLVED' | 'VOIDED';
+  outcome: 'PENDING' | 'YES' | 'NO' | 'INCONCLUSIVE' | 'EXPIRED_UNRESOLVED';
   resolution_rationale: string;
   total_positions: number;
   yes_probability: number;
@@ -32,6 +34,7 @@ export interface ProtocolStats {
   total_markets: number;
   open_markets: number;
   resolved_markets: number;
+  voided_markets: number;
   total_volume_locked: string;
 }
 
@@ -42,6 +45,7 @@ export interface UserPosition {
   no_stake: string;
   claimed: boolean;
   claimable_payout: string;
+  refundable_amount: string;
 }
 
 // Read-only client singleton connected to Studionet
@@ -61,22 +65,32 @@ export async function fetchAllMarkets(): Promise<Market[]> {
     args: [],
   })) as any[];
 
-  return rawMarkets.map((m) => ({
-    id: Number(m.id),
-    creator: String(m.creator),
-    question: String(m.question),
-    resolution_source_url: String(m.resolution_source_url),
-    resolution_rules: String(m.resolution_rules),
-    deadline_iso: String(m.deadline_iso),
-    yes_pool: String(m.yes_pool),
-    no_pool: String(m.no_pool),
-    status: m.status as 'OPEN' | 'RESOLVED',
-    outcome: m.outcome as 'PENDING' | 'YES' | 'NO',
-    resolution_rationale: String(m.resolution_rationale || ''),
-    total_positions: Number(m.total_positions),
-    yes_probability: Number(m.yes_probability),
-    no_probability: Number(m.no_probability),
-  }));
+  return rawMarkets.map((m) => {
+    const deadlineIso = String(m.deadline_iso || '');
+    const refundDeadlineIso = String(m.refund_deadline_iso || '');
+    const isBettingOpen = m.is_betting_open !== undefined
+      ? Boolean(m.is_betting_open)
+      : (m.status === 'OPEN' && (deadlineIso ? Date.now() < Date.parse(deadlineIso) : true));
+
+    return {
+      id: Number(m.id),
+      creator: String(m.creator),
+      question: String(m.question),
+      resolution_source_url: String(m.resolution_source_url),
+      resolution_rules: String(m.resolution_rules),
+      deadline_iso: deadlineIso,
+      refund_deadline_iso: refundDeadlineIso,
+      is_betting_open: isBettingOpen,
+      yes_pool: String(m.yes_pool),
+      no_pool: String(m.no_pool),
+      status: m.status as 'OPEN' | 'RESOLVED' | 'VOIDED',
+      outcome: m.outcome as 'PENDING' | 'YES' | 'NO' | 'INCONCLUSIVE' | 'EXPIRED_UNRESOLVED',
+      resolution_rationale: String(m.resolution_rationale || ''),
+      total_positions: Number(m.total_positions),
+      yes_probability: Number(m.yes_probability),
+      no_probability: Number(m.no_probability),
+    };
+  });
 }
 
 // Fetch a single market by ID
@@ -88,17 +102,25 @@ export async function fetchMarket(id: number): Promise<Market> {
     args: [BigInt(id)],
   })) as any;
 
+  const deadlineIso = String(m.deadline_iso || '');
+  const refundDeadlineIso = String(m.refund_deadline_iso || '');
+  const isBettingOpen = m.is_betting_open !== undefined
+    ? Boolean(m.is_betting_open)
+    : (m.status === 'OPEN' && (deadlineIso ? Date.now() < Date.parse(deadlineIso) : true));
+
   return {
     id: Number(m.id),
     creator: String(m.creator),
     question: String(m.question),
     resolution_source_url: String(m.resolution_source_url),
     resolution_rules: String(m.resolution_rules),
-    deadline_iso: String(m.deadline_iso),
+    deadline_iso: deadlineIso,
+    refund_deadline_iso: refundDeadlineIso,
+    is_betting_open: isBettingOpen,
     yes_pool: String(m.yes_pool),
     no_pool: String(m.no_pool),
-    status: m.status as 'OPEN' | 'RESOLVED',
-    outcome: m.outcome as 'PENDING' | 'YES' | 'NO',
+    status: m.status as 'OPEN' | 'RESOLVED' | 'VOIDED',
+    outcome: m.outcome as 'PENDING' | 'YES' | 'NO' | 'INCONCLUSIVE' | 'EXPIRED_UNRESOLVED',
     resolution_rationale: String(m.resolution_rationale || ''),
     total_positions: Number(m.total_positions),
     yes_probability: Number(m.yes_probability),
@@ -119,6 +141,7 @@ export async function fetchStats(): Promise<ProtocolStats> {
     total_markets: Number(raw.total_markets),
     open_markets: Number(raw.open_markets),
     resolved_markets: Number(raw.resolved_markets),
+    voided_markets: Number(raw.voided_markets || 0),
     total_volume_locked: String(raw.total_volume_locked),
   };
 }
@@ -136,6 +159,7 @@ export async function fetchUserPosition(
       no_stake: '0',
       claimed: false,
       claimable_payout: '0',
+      refundable_amount: '0',
     };
   }
 
@@ -153,6 +177,7 @@ export async function fetchUserPosition(
     no_stake: String(raw.no_stake),
     claimed: Boolean(raw.claimed),
     claimable_payout: String(raw.claimable_payout),
+    refundable_amount: String(raw.refundable_amount || '0'),
   };
 }
 
@@ -203,11 +228,15 @@ export async function waitForConsensusFinality(
       const tx = await client.getTransaction({ hash: txHash as any });
       if (tx) {
         const rawStatus = (tx.statusName || String(tx.status || '')).toUpperCase();
-        
+
         let mappedStage = 'SUBMITTING';
         if (rawStatus === 'PROPOSING' || rawStatus.includes('PROPOS')) {
           mappedStage = 'PROPOSING';
-        } else if (rawStatus === 'COMMITTING' || rawStatus === 'REVEALING' || rawStatus.includes('COMMIT')) {
+        } else if (
+          rawStatus === 'COMMITTING' ||
+          rawStatus === 'REVEALING' ||
+          rawStatus.includes('COMMIT')
+        ) {
           mappedStage = 'COMMITTING';
         } else if (
           rawStatus === 'FINALIZED' ||
@@ -317,19 +346,57 @@ export async function executeClaimWinnings(params: {
   return { txHash, txReceipt };
 }
 
+export async function executeClaimRefund(params: {
+  marketId: number;
+  wallet: { provider?: any; userAddress?: string; privateKey?: `0x${string}` };
+  onStageChange?: (stage: string, rawStatus?: string, tx?: any) => void;
+}): Promise<{ txHash: string; txReceipt: any }> {
+  const client = getExecutionClient(params.wallet);
+
+  const txHash = await client.writeContract({
+    address: CONTRACT_ADDRESS,
+    functionName: 'claim_refund',
+    args: [BigInt(params.marketId)],
+    value: 0n,
+  });
+
+  const txReceipt = await waitForConsensusFinality(txHash, params.onStageChange);
+  return { txHash, txReceipt };
+}
+
+export async function executeVoidExpiredMarket(params: {
+  marketId: number;
+  wallet: { provider?: any; userAddress?: string; privateKey?: `0x${string}` };
+  onStageChange?: (stage: string, rawStatus?: string, tx?: any) => void;
+}): Promise<{ txHash: string; txReceipt: any }> {
+  const client = getExecutionClient(params.wallet);
+
+  const txHash = await client.writeContract({
+    address: CONTRACT_ADDRESS,
+    functionName: 'void_expired_market',
+    args: [BigInt(params.marketId)],
+    value: 0n,
+  });
+
+  const txReceipt = await waitForConsensusFinality(txHash, params.onStageChange);
+  return { txHash, txReceipt };
+}
+
 export async function executeCreateMarket(params: {
   question: string;
   sourceUrl: string;
   rules: string;
   deadlineIso: string;
+  resolutionWindowHours?: number;
   seedAmountGen?: string;
   wallet: { provider?: any; userAddress?: string; privateKey?: `0x${string}` };
   onStageChange?: (stage: string, rawStatus?: string, tx?: any) => void;
 }): Promise<{ txHash: string; txReceipt: any }> {
   const client = getExecutionClient(params.wallet);
-  const valueWei = params.seedAmountGen && Number(params.seedAmountGen) > 0
-    ? parseEther(params.seedAmountGen)
-    : 0n;
+  const valueWei =
+    params.seedAmountGen && Number(params.seedAmountGen) > 0
+      ? parseEther(params.seedAmountGen)
+      : 0n;
 
   const txHash = await client.writeContract({
     address: CONTRACT_ADDRESS,
@@ -339,6 +406,7 @@ export async function executeCreateMarket(params: {
       params.sourceUrl,
       params.rules,
       params.deadlineIso,
+      BigInt(params.resolutionWindowHours || 72),
     ],
     value: valueWei,
   });

@@ -4,7 +4,7 @@ import time
 from eth_account import Account
 from genlayer_py import create_client, studionet
 
-CONTRACT_ADDRESS = "0xbB14bFF145C3422f05a51ccD515dbeF770435815"
+CONTRACT_ADDRESS = "0x4f5b23c365fa4d93E2878d6537D4eCA90Ec4F451"
 PRIVATE_KEY = os.environ.get(
     "GENLAYER_PRIVATE_KEY",
     "0xf4bfb7f98529b7acf3ec1e9fc2fcf1d573d15d7485163dc35df4ecf4cc695b0f",
@@ -12,39 +12,42 @@ PRIVATE_KEY = os.environ.get(
 
 MARKETS_TO_SEED = [
     {
-        "question": "Will Ethereum mainnet activate the Pectra upgrade before Q3 2026?",
+        "question": "Will Ethereum mainnet activate the Pectra upgrade before Q3 2027?",
         "source_url": "https://eips.ethereum.org/EIPS/eip-7600",
         "rules": (
             "Resolves to YES if Ethereum consensus specifications confirm that the Pectra network "
-            "upgrade (EIP-7600) has been activated on Ethereum mainnet prior to July 1, 2026. "
+            "upgrade (EIP-7600) has been activated on Ethereum mainnet prior to July 1, 2027. "
             "Resolves to NO if officially abandoned or deadline passes without activation. "
             "Returns NOT_YET if the event is pending."
         ),
-        "deadline": "2026-07-01T00:00:00Z",
+        "deadline": "2027-07-01T00:00:00Z",
+        "resolution_window_hours": 72,
         "seed_liquidity_wei": 1_000_000_000_000_000_000,  # 1 GEN
     },
     {
-        "question": "Will Bitcoin reach a new all-time high above $150,000 USD before end of 2026?",
+        "question": "Will Bitcoin reach a new all-time high above $150,000 USD before end of 2027?",
         "source_url": "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd",
         "rules": (
             "Resolves to YES if CoinGecko official price data verifies Bitcoin traded at or above "
-            "$150,000.00 USD at any point prior to December 31, 2026. "
+            "$150,000.00 USD at any point prior to December 31, 2027. "
             "Resolves to NO if the deadline passes without reaching this price. "
             "Returns NOT_YET if ongoing below target."
         ),
-        "deadline": "2026-12-31T23:59:59Z",
+        "deadline": "2027-12-31T23:59:59Z",
+        "resolution_window_hours": 72,
         "seed_liquidity_wei": 2_000_000_000_000_000_000,  # 2 GEN
     },
     {
-        "question": "Will SpaceX complete an uncrewed Starship landing on Mars before November 2026?",
+        "question": "Will SpaceX complete an uncrewed Starship landing on Mars before November 2027?",
         "source_url": "https://en.wikipedia.org/wiki/SpaceX_Starship",
         "rules": (
             "Resolves to YES if SpaceX officially confirms a successful uncrewed Starship landing on the "
-            "surface of Mars before November 1, 2026. "
+            "surface of Mars before November 1, 2027. "
             "Resolves to NO if the deadline passes without confirmation. "
             "Returns NOT_YET if mission is scheduled or ongoing."
         ),
-        "deadline": "2026-11-01T00:00:00Z",
+        "deadline": "2027-11-01T00:00:00Z",
+        "resolution_window_hours": 72,
         "seed_liquidity_wei": 1_000_000_000_000_000_000,  # 1 GEN
     },
 ]
@@ -63,12 +66,14 @@ def main():
     for i, m in enumerate(MARKETS_TO_SEED):
         print(f"\n--- Seeding Market {i + 1}: {m['question']} ---")
         print(f"Initial seed liquidity: {m['seed_liquidity_wei']} wei ({m['seed_liquidity_wei'] / 1e18} GEN)")
+        print(f"Cutoff deadline: {m['deadline']} | Resolution window: {m['resolution_window_hours']}h")
 
         args = [
             m["question"],
             m["source_url"],
             m["rules"],
             m["deadline"],
+            m["resolution_window_hours"],
         ]
 
         try:
@@ -89,6 +94,7 @@ def main():
                 "market": m["question"],
                 "tx_hash": str(tx_hash),
                 "liquidity_gen": m["seed_liquidity_wei"] / 1e18,
+                "deadline_iso": m["deadline"],
             })
             time.sleep(2)
         except Exception as e:
@@ -123,6 +129,7 @@ def main():
     stats = client.read_contract(
         address=CONTRACT_ADDRESS,
         function_name="get_stats",
+        account=account,
         args=[],
     )
     print(f"Protocol Stats: {stats}")
@@ -130,11 +137,13 @@ def main():
     all_markets = client.read_contract(
         address=CONTRACT_ADDRESS,
         function_name="get_all_markets",
+        account=account,
         args=[],
     )
     print(f"Total seeded markets: {len(all_markets)}")
     for m in all_markets:
         print(f"ID {m['id']}: {m['question']}")
+        print(f"   Cutoff: {m['deadline_iso']} | Refund Expiry: {m['refund_deadline_iso']}")
         print(f"   YES: {m['yes_pool']} ({m['yes_probability']}%) | NO: {m['no_pool']} ({m['no_probability']}%)")
 
     import json
